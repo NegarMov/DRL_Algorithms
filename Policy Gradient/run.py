@@ -104,9 +104,14 @@ def train(params):
 
         # Compute the policy loss and backpropagate
         policy.optimizer.zero_grad()
-        loss = -1 * torch.sum(
-            torch.stack(episode_probs) * torch.tensor(episode_rewards, dtype=torch.float32, device=policy.device)
-        )
+
+        episode_rewards = torch.tensor(episode_rewards, dtype=torch.float32, device=policy.device)
+        episode_probs = torch.stack(episode_probs)
+        if episode_probs.dim() > 1:
+            episode_probs = episode_probs.sum(dim=-1)
+
+        loss = -1 * torch.sum(episode_probs * episode_rewards)
+
         loss.backward()
         policy.optimizer.step()
 
