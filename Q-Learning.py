@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 
-MODEL_PATH = './models/Q-Learning_FrozenLake.pkl'
+MODEL_PATH = './_models/Q-Learning_FrozenLake.pkl'
 
 
 def run(episodes, eval=False):
