@@ -197,7 +197,7 @@ def evaluate(params):
 
 if __name__ == '__main__':
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description='Run CartPole-v1 with Policy Gradient')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, help='Environment name')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
     parser.add_argument('--max_episode_len', type=int, default=1000, help='Maximum episode length')
