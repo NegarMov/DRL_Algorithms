@@ -34,6 +34,9 @@ def train(params):
     # Array to store aggregated rewards
     reward_per_episodes = np.zeros(params['episodes']//params['log_freq'])
 
+    # Store the user-specified learning rate
+    initial_lr = params['lr']
+
     # Run episodes
     for e in tqdm(range(params['episodes'])):
         # Reset the environment for a new episode
@@ -68,8 +71,11 @@ def train(params):
         # Decrease epsilon (less exploration)
         params['e'] = max(params['e'] - params['e_decay_rate'], 0)
 
-        if(params['e'] == 0):
-            params['lr'] = 1e-3
+        # Decrease the learning rate as the learning proceeds
+        if (params['e'] == 0):
+            params['lr'] = initial_lr * 0.25
+        elif (params['e'] < 0.5):
+            params['lr'] = initial_lr * 0.5
 
         if (e + 1) % params['log_freq'] == 0:
             reward_per_episodes[e//params['log_freq']] /= params['log_freq'] 
@@ -85,7 +91,7 @@ def train(params):
 
     # Save the learned Q values
     print('\nSaving Q values...')
-    out_name = f"Q-Learning_{params['env_name']}_{'slippery' if params['is_slippery'] else ''}"
+    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_Q-Learning"
     f = open(f"{MODEL_PATH}/{out_name}.pkl","wb")
     pickle.dump(q_table, f)
     f.close()
@@ -97,7 +103,7 @@ def evaluate(params):
 
     # Load the Q table
     print('\nLoading Q values...\n')
-    out_name = f"Q-Learning_{params['env_name']}_{'slippery' if params['is_slippery'] else ''}"
+    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_Q-Learning"
     f = open(f"{MODEL_PATH}/{out_name}.pkl", 'rb')
     q_table = pickle.load(f)
     f.close()
