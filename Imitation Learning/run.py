@@ -12,6 +12,9 @@ from policy.MLP_policy import MLPPolicySL
 from policy.loaded_gaussian_policy import LoadedGaussianPolicy
 
 
+# Path to save and load model parameters
+MODEL_PATH = '../_models'
+
 MAX_VIDEO_LEN = 40  # we overwrite this in the code below
 
 MJ_ENV_NAMES = ["Ant-v4", "Walker2d-v4", "HalfCheetah-v4", "Hopper-v4"]
@@ -166,7 +169,8 @@ def run_training_loop(params):
     # save the model parameters if specified so
     if params['save_params']:
         print('\nSaving agent params')
-        actor.save(params['model_save_path'])
+        out_name = f"{params['env_name']}_{'dagger' if params['do_dagger'] else 'bc'}"
+        actor.save(f"{MODEL_PATH}/{out_name}.pt")
 
 
 def main():
@@ -204,9 +208,6 @@ def main():
         assert args.n_iter > 1, ('DAGGER needs more than 1 iteration (n_iter>1) of training, to iteratively query the expert and train (after 1st warmstarting from behavior cloning).')
     else:
         assert args.n_iter == 1, ('Vanilla behavior cloning collects expert data just once (n_iter=1)')
-
-    if args.save_params:
-        assert args.model_save_path is not None, ('Specify a path for saving the model params')
 
     ###################
     ### RUN TRAINING
