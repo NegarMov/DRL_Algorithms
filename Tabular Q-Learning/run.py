@@ -55,9 +55,8 @@ def train(params):
             new_observation, reward, terminated, truncated, _ = env.step(action)
 
             # Update the Q values
-            q_table[observation, action] = \
-                q_table[observation, action] + \
-                params['lr'] * (reward + params['df'] * np.max(q_table[new_observation, :]) - q_table[observation, action])
+            y = reward + params['df'] * np.max(q_table[new_observation, :])
+            q_table[observation, action] -= params['lr'] * (q_table[observation, action] - y)
 
             # Collect the reward for this step
             reward_per_episodes[e//params['log_freq']] += reward
