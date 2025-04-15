@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from torch import optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 class DQN(nn.Module):
     def __init__(self, ob_dim, ac_dim, hidden_layers=2, hidden_size=64, lr=1e-2):
