@@ -16,6 +16,7 @@ class Actor(nn.Module):
             layers.append(nn.ReLU())   
             in_size = hidden_size
         layers.append(nn.Linear(in_size, ac_dim))
+        layers.append(nn.Tanh())
         self.mlp = nn.Sequential(*layers).to(self.device)
 
         parameters = self.mlp.parameters()
@@ -24,8 +25,6 @@ class Actor(nn.Module):
             parameters,
             lr
         )
-
-        self.loss_fn = nn.MSELoss()
 
 
     def forward(self, ob):

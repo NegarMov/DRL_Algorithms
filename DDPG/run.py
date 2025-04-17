@@ -30,6 +30,16 @@ def create_env(params):
     return env, ob_dim, ac_dim
 
 
+def rescale_action(ac, lower_bound, higher_bound, noise=None):
+    if noise:
+        noisy_ac = np.clip(ac + noise, -1, 1)
+        scaled_ac = lower_bound + ((noisy_ac + 1.0) / 2) * (higher_bound - lower_bound)
+        return noisy_ac, scaled_ac
+
+    scaled_ac = lower_bound + ((ac + 1.0) / 2) * (higher_bound - lower_bound)
+    return scaled_ac
+
+
 def train(params):
     # Create the environment and get its properties
     env, ob_dim, ac_dim = create_env(params)
@@ -38,16 +48,17 @@ def train(params):
     replay_buffer = ReplayBuffer(params['max_buffer_size'])
 
     # Initialize the networks and copy the weights to target network
-    actor = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
-    target_actor = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
+    actor = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['actor_lr'])
+    target_actor = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
     target_actor.load_state_dict(actor.state_dict())
 
-    critic = Critic(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
-    target_critic = Critic(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
+    critic = Critic(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['critic_lr'])
+    target_critic = Critic(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
     target_critic.load_state_dict(critic.state_dict())
     
     # Array to store aggregated rewards
     reward_per_episodes = np.zeros(params['episodes']//params['log_freq'])
+    val_rewards = np.zeros(params['episodes']//params['log_freq'])
 
     # Run episodes
     for e in tqdm(range(params['episodes'])):
@@ -55,10 +66,6 @@ def train(params):
         ob, _ = env.reset(seed=params['seed'])
 
         episode_over = False
-
-        # Decay noise scale
-        # noise_scale = max(params['noise_min'], params['noise'] * (params['noise_decay_rate'] ** e))
-        noise_scale = 0.1
 
         ###################
         ### COLLECT A PATH
@@ -69,19 +76,15 @@ def train(params):
             with torch.no_grad():
                 ac = actor(ob).numpy()
 
-            # Add noise to the action
-            noise = noise_scale * np.random.randn(ac_dim)
-            ac = np.clip(
-                ac + noise, 
-                env.action_space.low, 
-                env.action_space.high
-            )
+            # Add noise to the action and rescale it
+            noise = params['noise_scale'] * np.random.randn(ac_dim)
+            noisy_ac, scaled_ac = rescale_action(ac, env.action_space.low, env.action_space.high, noise)
 
             # Run the action on the environment
-            new_ob, reward, terminated, truncated, _ = env.step(ac)
+            new_ob, reward, terminated, truncated, _ = env.step(scaled_ac)
 
             # Add the transition to raplay buffer
-            replay_buffer.append((ob, ac, new_ob, reward, terminated)) 
+            replay_buffer.append((ob, noisy_ac, new_ob, reward, terminated)) 
 
             # Collect the reward for this step
             reward_per_episodes[e//params['log_freq']] += reward
@@ -130,8 +133,36 @@ def train(params):
                 t_param.data.copy_(params['tau'] * t_param.data + (1 - params['tau']) * param.data)
 
         if (e + 1) % params['log_freq'] == 0:
+            # Run validation 
+            for _ in range(params['val_episodes']):
+                # Reset the environment for a new episode
+                ob, _ = env.reset()
+
+                episode_over = False
+                
+                while not episode_over:
+                    # Select the action
+                    with torch.no_grad():
+                        ac = actor(ob).numpy()
+                    
+                    # Rescale the action
+                    ac = rescale_action(ac, env.action_space.low, env.action_space.high)
+
+                    # Run the action on the environment
+                    new_ob, reward, terminated, truncated, _ = env.step(ac)
+
+                    # Collect the reward for this step
+                    val_rewards[e//params['log_freq']] += reward
+
+                    # Update the observation
+                    ob = new_ob
+
+                    # Check if the episode is over
+                    episode_over = terminated or truncated
+
             reward_per_episodes[e//params['log_freq']] /= params['log_freq'] 
-            print(f"\nEpisode {e+1}: Reward = {reward_per_episodes[e//params['log_freq']]}")
+            val_rewards[e//params['log_freq']] /= params['val_episodes']
+            print(f"\nEpisode {e+1}: Training reward = {reward_per_episodes[e//params['log_freq']]}, Validation reward: {val_rewards[e//params['log_freq']]}")         
 
     env.close()
 
@@ -142,7 +173,7 @@ def train(params):
     plt.show()
 
     # Save the trained networks
-    out_name = f"{params['env_name']}_DDQN"
+    out_name = f"{params['env_name']}_DDPG"
     
     print('\nSaving actor parameters...')
     actor.save(f"{MODEL_PATH}/{out_name}.pt")
@@ -154,8 +185,8 @@ def evaluate(params):
 
     # Initialize and load the policy network
     print('\nLoading policy network...\n')
-    policy = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
-    out_name = f"{params['env_name']}_DDQN"
+    policy = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
+    out_name = f"{params['env_name']}_DDPG"
     policy.load(f"{MODEL_PATH}/{out_name}.pt")
 
     # Run episodes
@@ -167,9 +198,12 @@ def evaluate(params):
         episode_reward = 0
         
         while not episode_over:
-            # Sample an action from the policy
+            # Select the action
             with torch.no_grad():
-                ac = policy(ob).argmax().item()
+                ac = policy(ob).numpy()
+            
+            # Rescale the action
+            ac = rescale_action(ac, env.action_space.low, env.action_space.high)
 
             # Run the action on the environment
             new_ob, reward, terminated, truncated, _ = env.step(ac)
@@ -177,7 +211,7 @@ def evaluate(params):
             # Collect the reward for this step
             episode_reward += reward
 
-            # Update the observation and go for the next step
+            # Update the observation
             ob = new_ob
 
             # Check if the episode is over
@@ -193,17 +227,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, default='Pendulum-v1', help='Environment name')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
+    parser.add_argument('--val_episodes', type=int, default=10, help='Number of episodes in the validation process')
     parser.add_argument('--log_freq', type=int, default=100, help='Frequency at which training rewards and losses are recorded (in episodes)')
-    parser.add_argument('--max_buffer_size', type=int, default=10000, help='Maximum capacity of the replay buffer')
+    parser.add_argument('--max_buffer_size', type=int, default=int(1e5), help='Maximum capacity of the replay buffer')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of experiences sampled from the replay buffer for each training iteration')
     parser.add_argument('--df', type=float, default=0.9, help='Discount factor')
     parser.add_argument('--hidden_layers', type=int, default=2, help='Number of hidden layers')
     parser.add_argument('--hidden_size', type=int, default=64, help='Size of each hidden layer')
-    parser.add_argument('--lr', type=float, default=1e-2, help='Learning rate')
+    parser.add_argument('--actor_lr', type=float, default=1e-2, help='Learning rate for the actor network')
+    parser.add_argument('--critic_lr', type=float, default=1e-2, help='Learning rate for the critic network')
     parser.add_argument('--tau', type=float, default=0.99, help='Polyak averaging coefficient')
-    parser.add_argument('--noise', type=float, default=1.0, help='The starting value for noise')
-    parser.add_argument('--noise_min', type=float, default=0.0, help='The minimum value for noise')
-    parser.add_argument('--noise_decay_rate', type=float, default=0.0, help='Noise decay rate')
+    parser.add_argument('--noise_scale', type=float, default=1.0, help='Action noise scale')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     args = parser.parse_args()
