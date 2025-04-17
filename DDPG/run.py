@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from actor import Actor
 from critic import Critic
-from replay_buffer import ReplayBuffer
+from replay_buffer import PrioritizedReplayBuffer
 
 import torch
 
@@ -45,7 +45,7 @@ def train(params):
     env, ob_dim, ac_dim = create_env(params)
 
     # Initialize the replay buffer
-    replay_buffer = ReplayBuffer(params['max_buffer_size'])
+    replay_buffer = PrioritizedReplayBuffer(params['max_buffer_size'])
 
     # Initialize the networks and copy the weights to target network
     actor = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['actor_lr'])
@@ -132,33 +132,14 @@ def train(params):
             for t_param, param in zip(target_critic.parameters(), critic.parameters()):
                 t_param.data.copy_(params['tau'] * t_param.data + (1 - params['tau']) * param.data)
 
+        ###################
+        ### LOG METRICS
+        ###################
+
         if (e + 1) % params['log_freq'] == 0:
             # Run validation 
             for _ in range(params['val_episodes']):
-                # Reset the environment for a new episode
-                ob, _ = env.reset()
-
-                episode_over = False
-                
-                while not episode_over:
-                    # Select the action
-                    with torch.no_grad():
-                        ac = actor(ob).numpy()
-                    
-                    # Rescale the action
-                    ac = rescale_action(ac, env.action_space.low, env.action_space.high)
-
-                    # Run the action on the environment
-                    new_ob, reward, terminated, truncated, _ = env.step(ac)
-
-                    # Collect the reward for this step
-                    val_rewards[e//params['log_freq']] += reward
-
-                    # Update the observation
-                    ob = new_ob
-
-                    # Check if the episode is over
-                    episode_over = terminated or truncated
+                val_rewards[e//params['log_freq']] += run_eval_episode(env, actor)
 
             reward_per_episodes[e//params['log_freq']] /= params['log_freq'] 
             val_rewards[e//params['log_freq']] /= params['val_episodes']
@@ -167,9 +148,11 @@ def train(params):
     env.close()
 
     # Plot the results
-    plt.plot(np.arange(0, params['episodes'], params['log_freq']), reward_per_episodes)
+    plt.plot(np.arange(0, params['episodes'], params['log_freq']), reward_per_episodes, label="Training Reward")
+    plt.plot(np.arange(0, params['episodes'], params['log_freq']), val_rewards, label="Validation Reward")
     plt.xlabel('Episode Number')
     plt.ylabel(f"Average Reward per {params['log_freq']} Episodes")
+    plt.legend()
     plt.show()
 
     # Save the trained networks
@@ -177,6 +160,36 @@ def train(params):
     
     print('\nSaving actor parameters...')
     actor.save(f"{MODEL_PATH}/{out_name}.pt")
+
+
+def run_eval_episode(env, policy):
+    # Reset the environment for a new episode
+    ob, _ = env.reset()
+
+    episode_over = False
+    episode_reward = 0
+    
+    while not episode_over:
+        # Select the action
+        with torch.no_grad():
+            ac = policy(ob).numpy()
+        
+        # Rescale the action
+        ac = rescale_action(ac, env.action_space.low, env.action_space.high)
+
+        # Run the action on the environment
+        new_ob, reward, terminated, truncated, _ = env.step(ac)
+
+        # Collect the reward for this step
+        episode_reward += reward
+
+        # Update the observation
+        ob = new_ob
+
+        # Check if the episode is over
+        episode_over = terminated or truncated
+
+    return episode_reward
 
 
 def evaluate(params):
@@ -191,33 +204,7 @@ def evaluate(params):
 
     # Run episodes
     for e in range(params['episodes']):
-        # Reset the environment for a new episode
-        ob, _ = env.reset()
-
-        episode_over = False
-        episode_reward = 0
-        
-        while not episode_over:
-            # Select the action
-            with torch.no_grad():
-                ac = policy(ob).numpy()
-            
-            # Rescale the action
-            ac = rescale_action(ac, env.action_space.low, env.action_space.high)
-
-            # Run the action on the environment
-            new_ob, reward, terminated, truncated, _ = env.step(ac)
-
-            # Collect the reward for this step
-            episode_reward += reward
-
-            # Update the observation
-            ob = new_ob
-
-            # Check if the episode is over
-            episode_over = terminated or truncated
-
-        print(f"Episode {e+1}: Reward = {episode_reward}")
+        print(f"Episode {e+1}: Reward = {run_eval_episode(env, policy)}")
                 
     env.close()
 
