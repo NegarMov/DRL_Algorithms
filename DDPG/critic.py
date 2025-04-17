@@ -14,6 +14,7 @@ class Critic(nn.Module):
         for _ in range(hidden_layers):
             layers.append(nn.Linear(in_size, hidden_size))
             layers.append(nn.ReLU())   
+            layers.append(nn.Dropout(p=0.1))
             in_size = hidden_size
         layers.append(nn.Linear(in_size, 1))
         self.mlp = nn.Sequential(*layers).to(self.device)
@@ -22,7 +23,8 @@ class Critic(nn.Module):
 
         self.optimizer = optim.Adam(
             parameters,
-            lr
+            lr,
+            weight_decay=1e-3
         )
 
         self.loss_fn = nn.MSELoss()

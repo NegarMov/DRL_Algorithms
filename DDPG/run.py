@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from actor import Actor
 from critic import Critic
-from replay_buffer import PrioritizedReplayBuffer
+from replay_buffer import ReplayBuffer
 
 import torch
 
@@ -45,7 +45,7 @@ def train(params):
     env, ob_dim, ac_dim = create_env(params)
 
     # Initialize the replay buffer
-    replay_buffer = PrioritizedReplayBuffer(params['max_buffer_size'])
+    replay_buffer = ReplayBuffer(params['max_buffer_size'])
 
     # Initialize the networks and copy the weights to target network
     actor = Actor(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['actor_lr'])
@@ -99,7 +99,7 @@ def train(params):
         ### DQN UPDATE
         ###################
 
-        if len(replay_buffer) > params['batch_size']:
+        if len(replay_buffer) > params['batch_size'] and e > params['warmup_episodes']:
             obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
             # Critic update
@@ -143,7 +143,7 @@ def train(params):
 
             reward_per_episodes[e//params['log_freq']] /= params['log_freq'] 
             val_rewards[e//params['log_freq']] /= params['val_episodes']
-            print(f"\nEpisode {e+1}: Training reward = {reward_per_episodes[e//params['log_freq']]}, Validation reward: {val_rewards[e//params['log_freq']]}")         
+            print(f"\nEpisode {e+1}{' (warmup)' if e <= params['warmup_episodes'] else ''}: Training reward = {reward_per_episodes[e//params['log_freq']]}, Validation reward: {val_rewards[e//params['log_freq']]}")         
 
     env.close()
 
@@ -214,9 +214,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, default='Pendulum-v1', help='Environment name')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
+    parser.add_argument('--warmup_episodes', type=int, default=100, help='Number of episodes before training start')
     parser.add_argument('--val_episodes', type=int, default=10, help='Number of episodes in the validation process')
     parser.add_argument('--log_freq', type=int, default=100, help='Frequency at which training rewards and losses are recorded (in episodes)')
-    parser.add_argument('--max_buffer_size', type=int, default=int(1e5), help='Maximum capacity of the replay buffer')
+    parser.add_argument('--max_buffer_size', type=int, default=int(1e6), help='Maximum capacity of the replay buffer')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of experiences sampled from the replay buffer for each training iteration')
     parser.add_argument('--df', type=float, default=0.9, help='Discount factor')
     parser.add_argument('--hidden_layers', type=int, default=2, help='Number of hidden layers')
