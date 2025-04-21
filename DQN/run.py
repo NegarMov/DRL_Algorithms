@@ -62,13 +62,14 @@ def train(params):
     
     # Array to store aggregated rewards
     reward_per_episodes = np.zeros(params['episodes']//params['log_freq'])
+    val_rewards = np.zeros(params['episodes']//params['log_freq'])
 
     update_count = 0
 
     # Run episodes
     for e in tqdm(range(params['episodes'])):
         # Reset the environment for a new episode
-        ob, _ = env.reset(seed=params['seed'])
+        ob, _ = env.reset()
 
         episode_over = False
 
@@ -85,7 +86,7 @@ def train(params):
                 ac = env.action_space.sample()
             else:
                 with torch.no_grad():
-                    ac = target_dqn(encode_ob(ob, ob_dim, env)).argmax().item()
+                    ac = policy_dqn(encode_ob(ob, ob_dim, env)).argmax().item()
 
             # Run the action on the environment
             new_ob, reward, terminated, truncated, _ = env.step(ac)
@@ -107,40 +108,27 @@ def train(params):
         ###################
 
         if len(replay_buffer) > params['batch_size'] and np.sum(reward_per_episodes) > 0:
-            mini_batch = replay_buffer.sample(params['batch_size'])
-            
-            policy_q_values = []
-            target_q_values = []
+            obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
-            for ob, ac, new_ob, reward, terminated in mini_batch:
-
-                # Estimate the target Q values
-                if terminated:
-                    target = torch.FloatTensor([reward])
+            with torch.no_grad():
+                if params['ddqn']:
+                    policy_acs = policy_dqn(next_obs).argmax(dim=1)
+                    targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs.unsqueeze(1)).squeeze(1)
                 else:
-                    with torch.no_grad():
-                        if params['ddqn']:
-                            policy_ac = policy_dqn(encode_ob(new_ob, ob_dim, env)).argmax()
-                            target = torch.FloatTensor(
-                                reward + params['df'] * target_dqn(encode_ob(new_ob, ob_dim, env))[policy_ac]
-                            )
-                        else:
-                            target = torch.FloatTensor(
-                                reward + params['df'] * target_dqn(encode_ob(new_ob, ob_dim, env)).max()
-                            )
-                target_q = target_dqn(encode_ob(ob, ob_dim, env)) 
-                
-                # Adjust the specific action to the target that was just calculated
-                target_q[ac] = target
-                target_q_values.append(target_q)
+                    targets = rewards + params['df'] * target_dqn(next_obs).max(dim=1)[0]
 
-                # Get the policy Q values
-                policy_q_values.append(policy_dqn(encode_ob(ob, ob_dim, env)))
-                    
+                # If terminated, target is just reward
+                targets[terminateds] = rewards[terminateds]  
+
+            target_q_values = target_dqn(obs)
+            for i in range(params['batch_size']):
+                target_q_values[i, acs[i]] = targets[i]
+
             # Compute the loss and backpropagate
             policy_dqn.optimizer.zero_grad()
 
-            loss = policy_dqn.loss_fn(torch.stack(policy_q_values), torch.stack(target_q_values))
+            # Calculate loss
+            loss = policy_dqn.loss_fn(policy_dqn(obs), target_q_values)
 
             loss.backward()
             policy_dqn.optimizer.step()
@@ -151,22 +139,61 @@ def train(params):
             if update_count > params['network_sync_rate']:
                 target_dqn.load_state_dict(policy_dqn.state_dict())
 
+        ###################
+        ### LOG METRICS
+        ###################
+
         if (e + 1) % params['log_freq'] == 0:
+            # Run validation 
+            for _ in range(params['val_episodes']):
+                val_rewards[e//params['log_freq']] += run_eval_episode(env, ob_dim, policy_dqn)
+
             reward_per_episodes[e//params['log_freq']] /= params['log_freq'] 
-            print(f"\nEpisode {e+1}: Reward = {reward_per_episodes[e//params['log_freq']]}")
+            val_rewards[e//params['log_freq']] /= params['val_episodes']
+            print(f"\nEpisode {e+1}: Training reward = {reward_per_episodes[e//params['log_freq']]}, Validation reward: {val_rewards[e//params['log_freq']]}")
 
     env.close()
 
     # Plot the results
-    plt.plot(np.arange(0, params['episodes'], params['log_freq']), reward_per_episodes)
+    plt.plot(np.arange(0, params['episodes'], params['log_freq']), reward_per_episodes, label="Training Reward")
+    plt.plot(np.arange(0, params['episodes'], params['log_freq']), val_rewards, label="Validation Reward")
     plt.xlabel('Episode Number')
     plt.ylabel(f"Average Reward per {params['log_freq']} Episodes")
+    plt.legend()
     plt.show()
 
     # Save the learned policy network
     print('\nSaving policy network...')
-    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_DQN"
+    model_type = 'DDQN' if params['ddqn'] else 'DQN'
+    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_{model_type}"
     policy_dqn.save(f"{MODEL_PATH}/{out_name}.pt")
+
+
+def run_eval_episode(env, ob_dim, policy):
+    # Reset the environment for a new episode
+    ob, _ = env.reset()
+
+    episode_over = False
+    episode_reward = 0
+    
+    while not episode_over:
+        # Sample an action from the policy
+        with torch.no_grad():
+            ac = policy(encode_ob(ob, ob_dim, env)).argmax().item()
+
+        # Run the action on the environment
+        new_ob, reward, terminated, truncated, _ = env.step(ac)
+
+        # Collect the reward for this step
+        episode_reward += reward
+
+        # Update the observation and go for the next step
+        ob = new_ob
+
+        # Check if the episode is over
+        episode_over = terminated or truncated
+
+    return episode_reward
 
 
 def evaluate(params):
@@ -176,34 +203,13 @@ def evaluate(params):
     # Initialize and load the policy network
     print('\nLoading policy network...\n')
     policy = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
-    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_DQN"
+    model_type = 'DDQN' if params['ddqn'] else 'DQN'
+    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_{model_type}"
     policy.load(f"{MODEL_PATH}/{out_name}.pt")
 
     # Run episodes
     for e in range(params['episodes']):
-        # Reset the environment for a new episode
-        ob, _ = env.reset()
-
-        episode_over = False
-        episode_reward = 0
-        
-        while not episode_over:
-            # Sample an action from the policy
-            with torch.no_grad():
-                ac = policy(encode_ob(ob, ob_dim, env)).argmax().item()
-
-            # Run the action on the environment
-            new_ob, reward, terminated, truncated, _ = env.step(ac)
-
-            # Collect the reward for this step
-            episode_reward += reward
-
-            # Update the observation and go for the next step
-            ob = new_ob
-
-            # Check if the episode is over
-            episode_over = terminated or truncated
-
+        episode_reward = run_eval_episode(env, ob_dim, policy)
         print(f"Episode {e+1}: Reward = {episode_reward}")
                 
     env.close()
@@ -216,6 +222,7 @@ if __name__ == '__main__':
     parser.add_argument('--is_slippery', action='store_true', help='Indicates if the transition probabilities are non-deterministic')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
     parser.add_argument('--log_freq', type=int, default=100, help='Frequency at which training rewards and losses are recorded (in episodes)')
+    parser.add_argument('--val_episodes', type=int, default=10, help='Number of episodes in the validation process')
     parser.add_argument('--network_sync_rate', type=int, default=10, help='Frequency at which policy and target networks are synced')
     parser.add_argument('--max_buffer_size', type=int, default=10000, help='Maximum capacity of the replay buffer')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of experiences sampled from the replay buffer for each training iteration')
