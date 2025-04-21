@@ -10,5 +10,5 @@ python run.py ^
     --hidden_size 32 ^
     --lr 5e-3 ^
     --batch_size 128 ^
-    --ddqn ^
+    --dueling ^
     --eval

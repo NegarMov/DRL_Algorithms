@@ -6,6 +6,7 @@ import argparse
 from tqdm import tqdm
 
 from DQN import DQN
+from DuelingDQN import DuelingDQN
 from replay_buffer import ReplayBuffer
 
 import torch
@@ -55,8 +56,12 @@ def train(params):
     replay_buffer = ReplayBuffer(params['max_buffer_size'])
 
     # Initialize the networks and copy the weights to target network
-    policy_dqn = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
-    target_dqn = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
+    if params['dueling']:
+        policy_dqn = DuelingDQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
+        target_dqn = DuelingDQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
+    else:
+        policy_dqn = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
+        target_dqn = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
 
     target_dqn.load_state_dict(policy_dqn.state_dict())
     
@@ -111,7 +116,7 @@ def train(params):
             obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
             with torch.no_grad():
-                if params['ddqn']:
+                if params['ddqn'] or params['dueling']:
                     policy_acs = policy_dqn(next_obs).argmax(dim=1)
                     targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs.unsqueeze(1)).squeeze(1)
                 else:
@@ -164,7 +169,7 @@ def train(params):
 
     # Save the learned policy network
     print('\nSaving policy network...')
-    model_type = 'DDQN' if params['ddqn'] else 'DQN'
+    model_type = 'DDQN' if params['ddqn'] else 'duelingDQN' if params['dueling'] else 'DQN'
     out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_{model_type}"
     policy_dqn.save(f"{MODEL_PATH}/{out_name}.pt")
 
@@ -202,8 +207,11 @@ def evaluate(params):
 
     # Initialize and load the policy network
     print('\nLoading policy network...\n')
-    policy = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'], params['lr'])
-    model_type = 'DDQN' if params['ddqn'] else 'DQN'
+    if params['dueling']:
+        policy = DuelingDQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
+    else:
+        policy = DQN(ob_dim, ac_dim, params['hidden_layers'], params['hidden_size'])
+    model_type = 'DDQN' if params['ddqn'] else 'duelingDQN' if params['dueling'] else 'DQN'
     out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_{model_type}"
     policy.load(f"{MODEL_PATH}/{out_name}.pt")
 
@@ -234,6 +242,7 @@ if __name__ == '__main__':
     parser.add_argument('--e_min', type=float, default=0.0, help='The minimum value for epsilon')
     parser.add_argument('--e_decay_rate', type=float, default=0.0, help='Epsilon decay rate')
     parser.add_argument('--ddqn', action='store_true', help='Use double DQN')
+    parser.add_argument('--dueling', action='store_true', help='Use dueling DQN')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     args = parser.parse_args()
