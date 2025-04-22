@@ -108,40 +108,38 @@ def train(params):
             # Check if the episode is over
             episode_over = terminated or truncated
 
-        ###################
-        ### DQN UPDATE
-        ###################
+            ###################
+            ### DQN UPDATE
+            ###################
 
-        if len(replay_buffer) > params['batch_size'] and np.sum(reward_per_episodes) > 0:
-            obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
+            if len(replay_buffer) > params['batch_size'] and np.sum(reward_per_episodes) > 0:
+                obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
-            with torch.no_grad():
-                if params['ddqn'] or params['dueling']:
-                    policy_acs = policy_dqn(next_obs).argmax(dim=1)
-                    targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs.unsqueeze(1)).squeeze(1)
-                else:
-                    targets = rewards + params['df'] * target_dqn(next_obs).max(dim=1)[0]
+                with torch.no_grad():
+                    if params['ddqn'] or params['dueling']:
+                        policy_acs = policy_dqn(next_obs).argmax(dim=1)
+                        targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs.unsqueeze(1)).squeeze(1)
+                    else:
+                        targets = rewards + params['df'] * target_dqn(next_obs).max(dim=1)[0]
 
-                # If terminated, target is just reward
-                targets[terminateds] = rewards[terminateds]  
+                    # If terminated, target is just reward
+                    targets[terminateds] = rewards[terminateds]  
 
-            target_q_values = target_dqn(obs)
-            for i in range(params['batch_size']):
-                target_q_values[i, acs[i]] = targets[i]
+                policy_values = policy_dqn(obs).gather(1, acs.unsqueeze(1)).squeeze(1)
 
-            # Compute the loss and backpropagate
-            policy_dqn.optimizer.zero_grad()
+                # Compute the loss and backpropagate
+                policy_dqn.optimizer.zero_grad()
 
-            # Calculate loss
-            loss = policy_dqn.loss_fn(policy_dqn(obs), target_q_values)
+                # Calculate loss
+                loss = policy_dqn.loss_fn(policy_values, targets)
 
-            loss.backward()
-            policy_dqn.optimizer.step()
+                loss.backward()
+                policy_dqn.optimizer.step()
 
-            update_count += 1
+                update_count += 1
 
             # Copy policy network weights to target network
-            if update_count > params['network_sync_rate']:
+            if update_count % params['network_sync_rate'] == 0:
                 target_dqn.load_state_dict(policy_dqn.state_dict())
 
         ###################

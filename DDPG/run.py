@@ -95,35 +95,35 @@ def train(params):
             # Check if the episode is over
             episode_over = terminated or truncated
 
-        ###################
-        ### DQN UPDATE
-        ###################
+            ###################
+            ### DQN UPDATE
+            ###################
 
-        if len(replay_buffer) > params['batch_size'] and e > params['warmup_episodes']:
-            obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
+            if len(replay_buffer) > params['batch_size'] and e > params['warmup_episodes']:
+                obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
-            # Critic update
-            with torch.no_grad():
-                target_acs = target_actor(next_obs)
-                target_q = target_critic(next_obs, target_acs)
-                target_q = rewards + (1 - terminateds) * params['df'] * target_q
+                # Critic update
+                with torch.no_grad():
+                    target_acs = target_actor(next_obs)
+                    target_q = target_critic(next_obs, target_acs)
+                    target_q = rewards + (1 - terminateds) * params['df'] * target_q
 
-            current_q = critic(obs, acs)
-                    
-            critic_loss = critic.loss_fn(current_q, target_q)
-            
-            critic.optimizer.zero_grad()
-            critic_loss.backward()
-            critic.optimizer.step()
+                current_q = critic(obs, acs)
+                        
+                critic_loss = critic.loss_fn(current_q, target_q)
+                
+                critic.optimizer.zero_grad()
+                critic_loss.backward()
+                critic.optimizer.step()
 
-            # Actor update
-            policy_acs = actor(obs)
+                # Actor update
+                policy_acs = actor(obs)
 
-            actor_loss = -critic(obs, policy_acs).mean()
-            
-            actor.optimizer.zero_grad()
-            actor_loss.backward()
-            actor.optimizer.step()
+                actor_loss = -critic(obs, policy_acs).mean()
+                
+                actor.optimizer.zero_grad()
+                actor_loss.backward()
+                actor.optimizer.step()
 
             # Perform Polyak soft update
             for t_param, param in zip(target_actor.parameters(), actor.parameters()):

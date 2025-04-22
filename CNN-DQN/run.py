@@ -3,9 +3,9 @@ from numpy import random
 import matplotlib.pyplot as plt
 import argparse
 from tqdm import tqdm
-import math
 
 from DQN import DQN
+from DuelingDQN import DuelingDQN
 from replay_buffer import ReplayBuffer
 from wrappers import FireResetEnv, EpisodicLifeEnv
 
@@ -23,20 +23,17 @@ def create_env(params, episodic_life=True, clip_rewards=False):
 
     env = gym.make(
         params['env_name'], 
-        render_mode="human" if params['eval'] else None,
-        frameskip=1
+        render_mode="human" if params['eval'] else None
     )
 
     # Wrap the environment to make it suitable for Atari games
     env = AtariPreprocessing(
-        env, 
-        noop_max=30, 
-        frame_skip=4, 
-        screen_size=params['frame_size'], 
+        env,
         grayscale_obs=True,
-        scale_obs=True
+        scale_obs=True,
+        terminal_on_life_loss=True
     )
-    env = FrameStackObservation(env, stack_size=4)
+    env = FrameStackObservation(env, 4)
     if clip_rewards:
         env = ClipReward(env, -1, 1)
     if episodic_life:
@@ -44,28 +41,32 @@ def create_env(params, episodic_life=True, clip_rewards=False):
     if 'FIRE' in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
 
+    state_dim = env.observation_space.shape
     ac_dim = env.action_space.n
 
-    return env, ac_dim
+    return env, state_dim, ac_dim
 
 
 def train(params):
     # Create the environment and get its properties
-    env, ac_dim = create_env(params)
+    env, state_dim, ac_dim = create_env(params)
 
     # Initialize the replay buffer
-    replay_buffer = ReplayBuffer(params['max_buffer_size'], (4, params['frame_size'], params['frame_size']))
+    replay_buffer = ReplayBuffer(params['max_buffer_size'], state_dim)
 
     # Initialize the networks and copy the weights to target network
-    policy_dqn = DQN(ac_dim, params['lr'])
-    target_dqn = DQN(ac_dim)
+    if params['dueling']:
+        policy_dqn = DuelingDQN(ac_dim, params['lr'])
+        target_dqn = DuelingDQN(ac_dim)
+    else:
+        policy_dqn = DQN(ac_dim, params['lr'])
+        target_dqn = DQN(ac_dim)
 
     target_dqn.load_state_dict(policy_dqn.state_dict())
     
     # Array to store aggregated rewards
     reward_per_episodes = np.zeros(params['episodes']//params['log_freq'])
 
-    update_count = 0
     actions_taken = 0
 
     # Run episodes
@@ -81,8 +82,7 @@ def train(params):
 
         while not episode_over:
             # Compute the epsilon value for this step
-            e_threshold = min(params['e_min'] + (params['e'] - params['e_min']) * \
-                math.exp(-1. * (actions_taken - params['warmup_steps']) / params['e_decay_rate']), 1)
+            e_threshold = max(params['e'] - (params['e_decay_rate'] * actions_taken), params['e_min'])
             
             # Use epsilon-greedy exploration to choose an action
             if random.rand() < e_threshold or actions_taken < params['warmup_steps']:
@@ -95,7 +95,7 @@ def train(params):
             new_ob, reward, terminated, truncated, _ = env.step(ac)
 
             # Add the transition to raplay buffer
-            replay_buffer.append((ob, ac, new_ob, reward, terminated)) 
+            replay_buffer.append((ob, ac, new_ob, np.sign(reward), terminated)) 
 
             # Collect the reward for this step
             reward_per_episodes[e//params['log_freq']] += reward
@@ -107,39 +107,39 @@ def train(params):
             # Check if the episode is over
             episode_over = terminated or truncated
 
-        ###################
-        ### DQN UPDATE
-        ###################
+            ###################
+            ### DQN UPDATE
+            ###################
 
-        if len(replay_buffer) > params['batch_size'] and actions_taken > params['warmup_steps']:
-            obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
+            if len(replay_buffer) > params['batch_size'] and actions_taken > params['warmup_steps']:
+                obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
-            with torch.no_grad():
-                if params['ddqn']:
-                    policy_acs = policy_dqn(next_obs).argmax(dim=1)
-                    targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs.unsqueeze(1)).squeeze(1)
-                else:
-                    targets = rewards + params['df'] * target_dqn(next_obs).max(dim=1)[0]
+                obs = obs.type(torch.FloatTensor).to(policy_dqn.device)
+                next_obs = next_obs.type(torch.FloatTensor).to(policy_dqn.device)
 
-                # If terminated, target is just reward
-                terminateds = terminateds.squeeze()
-                targets[terminateds] = rewards[terminateds]  
+                with torch.no_grad():
+                    if params['ddqn'] or params['dueling']:
+                        policy_acs = policy_dqn(next_obs).argmax(dim=-1, keepdim=True)
+                        targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs).squeeze()
+                    else:
+                        targets = rewards + params['df'] * target_dqn(next_obs).max(dim=1)[0]
 
-            # Get Q values for the actions taken
-            q_values = policy_dqn(obs).gather(1, acs.unsqueeze(1)).squeeze(1)
+                    # If terminated, target is just reward
+                    targets[terminateds] = rewards[terminateds]  
 
-            # Calculate loss
-            loss = policy_dqn.loss_fn(q_values, targets)
+                policy_values = policy_dqn(obs).gather(1, acs.unsqueeze(dim=-1)).squeeze()
 
-            # Compute the loss and backpropagate
-            policy_dqn.optimizer.zero_grad()
-            loss.backward()
-            policy_dqn.optimizer.step()
+                # Compute the loss and backpropagate
+                policy_dqn.optimizer.zero_grad()
 
-            update_count += params['batch_size']
+                # Calculate loss
+                loss = policy_dqn.loss_fn(policy_values, targets)
+
+                loss.backward()
+                policy_dqn.optimizer.step()
 
             # Copy policy network weights to target network
-            if update_count > params['network_sync_rate']:
+            if actions_taken % params['network_sync_rate'] == 0:
                 target_dqn.load_state_dict(policy_dqn.state_dict())
 
         if (e + 1) % params['log_freq'] == 0:
@@ -162,11 +162,14 @@ def train(params):
 
 def evaluate(params):
     # Create the environment and get its properties
-    env, ac_dim = create_env(params)
+    env, _, ac_dim = create_env(params)
 
     # Initialize and load the policy network
     print('\nLoading policy network...\n')
-    policy = DQN(ac_dim)
+    if params['dueling']:
+        policy = DuelingDQN(ac_dim)
+    else:
+        policy = DQN(ac_dim)
     out_name = f"{params['env_name'].split('/')[-1]}_CNN-DQN"
     policy.load(f"{MODEL_PATH}/{out_name}.pt")
 
@@ -205,7 +208,6 @@ if __name__ == '__main__':
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', type=str, default='ALE/Pong-v5', help='Environment name')
-    parser.add_argument('--frame_size', type=int, default=84, help='The size to which the frames would be resized to')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
     parser.add_argument('--warmup_steps', type=int, default=50000, help='Number of steps before training start')
     parser.add_argument('--log_freq', type=int, default=100, help='Frequency at which training rewards and losses are recorded (in episodes)')
@@ -218,6 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--e_min', type=float, default=0.0, help='The minimum value for epsilon')
     parser.add_argument('--e_decay_rate', type=float, default=0.0, help='Epsilon decay rate')
     parser.add_argument('--ddqn', action='store_true', help='Use double DQN')
+    parser.add_argument('--dueling', action='store_true', help='Use dueling DQN')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     args = parser.parse_args()
