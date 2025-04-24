@@ -114,9 +114,6 @@ def train(params):
             if len(replay_buffer) > params['batch_size'] and actions_taken > params['warmup_steps']:
                 obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
-                obs = obs.type(torch.FloatTensor).to(policy_dqn.device)
-                next_obs = next_obs.type(torch.FloatTensor).to(policy_dqn.device)
-
                 with torch.no_grad():
                     if params['ddqn'] or params['dueling']:
                         policy_acs = policy_dqn(next_obs).argmax(dim=-1, keepdim=True)
@@ -212,6 +209,7 @@ if __name__ == '__main__':
     parser.add_argument('--warmup_steps', type=int, default=50000, help='Number of steps before training start')
     parser.add_argument('--log_freq', type=int, default=100, help='Frequency at which training rewards and losses are recorded (in episodes)')
     parser.add_argument('--network_sync_rate', type=int, default=10000, help='Frequency at which policy and target networks are synced')
+    parser.add_argument('--train_freq', type=int, default=128, help='Frequency at which one step of gradient descent is run (in steps)')
     parser.add_argument('--max_buffer_size', type=int, default=int(1e6), help='Maximum capacity of the replay buffer')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of experiences sampled from the replay buffer for each training iteration')
     parser.add_argument('--df', type=float, default=0.9, help='Discount factor')

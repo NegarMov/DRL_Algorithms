@@ -2,7 +2,8 @@
 python run.py ^
     --env_name "CartPole-v1" ^
     --episodes 1 ^
-    --df 0.9 ^
+    --train_freq 8 ^
+    --df 0.9999 ^
     --e 1.0 ^
     --e_min 0.1 ^
     --e_decay_rate 0.99 ^

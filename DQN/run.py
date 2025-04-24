@@ -68,8 +68,10 @@ def train(params):
     # Array to store aggregated rewards
     reward_per_episodes = np.zeros(params['episodes']//params['log_freq'])
     val_rewards = np.zeros(params['episodes']//params['log_freq'])
+    max_reward = -1
 
     update_count = 0
+    actions_taken = 0
 
     # Run episodes
     for e in tqdm(range(params['episodes'])):
@@ -108,24 +110,26 @@ def train(params):
             # Check if the episode is over
             episode_over = terminated or truncated
 
+            actions_taken += 1
+
             ###################
             ### DQN UPDATE
             ###################
 
-            if len(replay_buffer) > params['batch_size'] and np.sum(reward_per_episodes) > 0:
+            if len(replay_buffer) > params['batch_size'] and actions_taken % params['train_freq'] == 0:
                 obs, acs, next_obs, rewards, terminateds = replay_buffer.sample(params['batch_size'])
 
                 with torch.no_grad():
                     if params['ddqn'] or params['dueling']:
-                        policy_acs = policy_dqn(next_obs).argmax(dim=1)
-                        targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs.unsqueeze(1)).squeeze(1)
+                        policy_acs = policy_dqn(next_obs).argmax(dim=-1, keepdim=True)
+                        targets = rewards + params['df'] * target_dqn(next_obs).gather(1, policy_acs).squeeze()
                     else:
                         targets = rewards + params['df'] * target_dqn(next_obs).max(dim=1)[0]
 
                     # If terminated, target is just reward
-                    targets[terminateds] = rewards[terminateds]  
+                    targets[terminateds] = rewards[terminateds] 
 
-                policy_values = policy_dqn(obs).gather(1, acs.unsqueeze(1)).squeeze(1)
+                policy_values = policy_dqn(obs).gather(1, acs.unsqueeze(dim=-1)).squeeze()
 
                 # Compute the loss and backpropagate
                 policy_dqn.optimizer.zero_grad()
@@ -134,13 +138,14 @@ def train(params):
                 loss = policy_dqn.loss_fn(policy_values, targets)
 
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(policy_dqn.parameters(), max_norm=1.0)
                 policy_dqn.optimizer.step()
 
                 update_count += 1
 
-            # Copy policy network weights to target network
-            if update_count % params['network_sync_rate'] == 0:
-                target_dqn.load_state_dict(policy_dqn.state_dict())
+                # Copy policy network weights to target network
+                if update_count % params['network_sync_rate'] == 0:
+                    target_dqn.load_state_dict(policy_dqn.state_dict())
 
         ###################
         ### LOG METRICS
@@ -151,25 +156,34 @@ def train(params):
             for _ in range(params['val_episodes']):
                 val_rewards[e//params['log_freq']] += run_eval_episode(env, ob_dim, policy_dqn)
 
+            # Log the values
             reward_per_episodes[e//params['log_freq']] /= params['log_freq'] 
             val_rewards[e//params['log_freq']] /= params['val_episodes']
-            print(f"\nEpisode {e+1}: Training reward = {reward_per_episodes[e//params['log_freq']]}, Validation reward: {val_rewards[e//params['log_freq']]}")
+            print(f"\nEpisode {e+1}: Training reward = {reward_per_episodes[e//params['log_freq']]}, Validation reward: {val_rewards[e//params['log_freq']]}, Buffer size: {len(replay_buffer)}")
+
+            # Save the policy network if it's better than the best one so far
+            iteration_reward = reward_per_episodes[e//params['log_freq']] + val_rewards[e//params['log_freq']]
+            if e//params['log_freq'] > 0 and iteration_reward > max_reward: 
+                max_reward = iteration_reward
+                best_model_idx = e//params['log_freq']
+
+                model_type = 'DDQN' if params['ddqn'] else 'duelingDQN' if params['dueling'] else 'DQN'
+                out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_{model_type}"
+                policy_dqn.save(f"{MODEL_PATH}/{out_name}.pt")
 
     env.close()
 
     # Plot the results
     plt.plot(np.arange(0, params['episodes'], params['log_freq']), reward_per_episodes, label="Training Reward")
     plt.plot(np.arange(0, params['episodes'], params['log_freq']), val_rewards, label="Validation Reward")
+    
+    best_episode = best_model_idx * params['log_freq'] 
+    plt.axvline(x=best_episode, color='r', linestyle='--', label=f'Best Model (Episode {best_episode})') 
+    
     plt.xlabel('Episode Number')
     plt.ylabel(f"Average Reward per {params['log_freq']} Episodes")
     plt.legend()
     plt.show()
-
-    # Save the learned policy network
-    print('\nSaving policy network...')
-    model_type = 'DDQN' if params['ddqn'] else 'duelingDQN' if params['dueling'] else 'DQN'
-    out_name = f"{params['env_name']}{'_slippery' if params['is_slippery'] else ''}_{model_type}"
-    policy_dqn.save(f"{MODEL_PATH}/{out_name}.pt")
 
 
 def run_eval_episode(env, ob_dim, policy):
@@ -227,10 +241,11 @@ if __name__ == '__main__':
     parser.add_argument('--env_name', type=str, default='FrozenLake-v1', help='Environment name')
     parser.add_argument('--is_slippery', action='store_true', help='Indicates if the transition probabilities are non-deterministic')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
-    parser.add_argument('--log_freq', type=int, default=100, help='Frequency at which training rewards and losses are recorded (in episodes)')
+    parser.add_argument('--log_freq', type=int, default=25, help='Frequency at which training rewards and losses are recorded (in episodes)')
+    parser.add_argument('--train_freq', type=int, default=4, help='Frequency at which one step of gradient descent is run (in steps)')
     parser.add_argument('--val_episodes', type=int, default=10, help='Number of episodes in the validation process')
     parser.add_argument('--network_sync_rate', type=int, default=10, help='Frequency at which policy and target networks are synced')
-    parser.add_argument('--max_buffer_size', type=int, default=10000, help='Maximum capacity of the replay buffer')
+    parser.add_argument('--max_buffer_size', type=int, default=15000, help='Maximum capacity of the replay buffer')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of experiences sampled from the replay buffer for each training iteration')
     parser.add_argument('--df', type=float, default=0.9, help='Discount factor')
     parser.add_argument('--hidden_layers', type=int, default=2, help='Number of hidden layers')
