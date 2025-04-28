@@ -72,4 +72,4 @@ class EpisodicLifeEnv(gym.Wrapper):
             
         self.lives = self.env.unwrapped.ale.lives()
 
-        return new_ob
+        return new_ob, _
