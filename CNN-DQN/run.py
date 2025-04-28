@@ -153,7 +153,7 @@ def train(params):
         print(f"\nEpisode {e+1}{' (warmup)' if actions_taken < params['warmup_steps'] else ''} -- Reward: {episode_reward} - Loss: {episode_loss:.3f} - Last 100 avg reward: {np.mean(reward_per_episodes):.2f} - Epsilon: {e_threshold:.4f} - Buffer size: {len(replay_buffer)}")
 
         # Save the model as a checkpoint
-        if (e + 1) % params['checkpoint'] == 0:
+        if (e + 1) % params['save_freq'] == 0:
             out_name = f"{params['env_name'].split('/')[-1]}_CNN-DQN_{e+1}"
             policy_dqn.save(f"{MODEL_PATH}/{out_name}.pt")
 
@@ -178,7 +178,7 @@ def evaluate(params):
     # Initialize and load the policy network
     print('\nLoading policy network...\n')
     policy = DuelingDQN(ac_dim)
-    out_name = f"{params['env_name'].split('/')[-1]}_CNN-DQN_{params['eval_checkpoint']}"
+    out_name = f"{params['env_name'].split('/')[-1]}_CNN-DQN_{params['checkpoint']}"
     policy.load(f"{MODEL_PATH}/{out_name}.pt")
 
     # Run episodes
@@ -191,7 +191,7 @@ def evaluate(params):
 
         while not episode_over:
             # Choose an action
-            if random.rand() <= params['eval_e']:
+            if random.rand() <= params['e']:
                 ac = env.action_space.sample()
             else:
                 with torch.no_grad():
@@ -220,7 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--env_name', type=str, default='PongNoFrameskip-v4', help='Environment name')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of episodes')
     parser.add_argument('--warmup_steps', type=int, default=50000, help='Number of steps before training start')
-    parser.add_argument('--checkpoint', type=int, default=100, help='Frequency at which the model is saved (in episodes)')
+    parser.add_argument('--save_freq', type=int, default=100, help='Frequency at which the model is saved (in episodes)')
     parser.add_argument('--max_buffer_size', type=int, default=int(1e6), help='Maximum capacity of the replay buffer')
     parser.add_argument('--batch_size', type=int, default=32, help='Number of experiences sampled from the replay buffer for each training iteration')
     parser.add_argument('--df', type=float, default=0.9, help='Discount factor')
@@ -228,9 +228,8 @@ if __name__ == '__main__':
     parser.add_argument('--e', type=float, default=1.0, help='The starting value for epsilon')
     parser.add_argument('--e_min', type=float, default=0.0, help='The minimum value for epsilon')
     parser.add_argument('--e_decay_rate', type=float, default=0.0, help='Epsilon decay rate')
-    parser.add_argument('--eval_e', type=float, default=0.05, help='The epsilon value used during evaluation')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
-    parser.add_argument('--eval_checkpoint', type=int, default=100, help='The checkpoint at which evaluation is done')
+    parser.add_argument('--checkpoint', type=int, default=100, help='The checkpoint at which evaluation is done')
     args = parser.parse_args()
 
     # Convert args to dictionary
