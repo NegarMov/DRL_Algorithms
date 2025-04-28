@@ -1,7 +1,7 @@
 @echo off
 python run.py ^
     --env_name "PongNoFrameskip-v4" ^
-    --episodes 1000 ^
+    --episodes 10 ^
     --checkpoint 100 ^
     --max_buffer_size 50000 ^
     --warmup_steps 40000 ^
@@ -12,4 +12,4 @@ python run.py ^
     --lr 2.5e-4 ^
     --batch_size 64 ^
     --eval ^
-    --eval_checkpoint 500
+    --eval_checkpoint 700
