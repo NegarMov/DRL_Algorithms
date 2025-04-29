@@ -12,17 +12,17 @@ All models are implemented in PyTorch and are trained on Gymnasium environments.
 
 ## Algorithms
 
-Here are a list of different algorithms implemented in this repository:
+Here is a list of different algorithms implemented in this repository:
 
 <details>
   <summary><h3>Imitation Learning</h3></summary>
   
-  Behavioural Cloning and DAgger algorithms were implemented in this part. The code for this part of the project is largely adapted from UC Berkeley [Homework 1](https://github.com/berkeleydeeprlcourse/homework_fall2023/tree/main/hw1).
-  TODO parts from the original homework have been completed, some modifications were made for simplicity, and the code was updated to work with Gymnasium instead of Gym.
+  Behavioral Cloning (BC) and DAgger algorithms are implemented in this section. The code for this part of the project is largely adapted from UC Berkeley [Homework 1](https://github.com/berkeleydeeprlcourse/homework_fall2023/tree/main/hw1).
+  TODO sections from the original homework have been completed, some modifications have been made for simplicity, and the code has been updated to work with Gymnasium instead of Gym.
   
   **Results** \
-  In the Half Cheetah task, Behavioural Cloning performs pretty well, achieving nearly 80% of the expert’s performance.
-  However, in the other tasks —particularly Walker2d, which seems to be more complicated than the others— it performs very poorly.
+  In the Half Cheetah task, Behavioral Cloning performs quite well, achieving nearly 80% of the expert’s performance. 
+  However, in other tasks —particularly Walker2d, which seems to be more complicated than the others— it performs very poorly. 
   In general, it is evident that DAgger outperforms BC in all tasks by addressing the distributional shift problem.
 
   <p align="center">
@@ -33,19 +33,19 @@ Here are a list of different algorithms implemented in this repository:
 
 <details>
   <summary><h3>Policy Gradient</h3></summary>
-  
-  For this part, REINFORCE algorithm was implemented. 
+
+  In this section, the REINFORCE algorithm is implemented. 
   This algorithm works for both discrete and continuous action spaces. 
-  For discrete action spaces, the model learns to represent a categorical distribution and for continuous action spaces, the model learns to represent a normal distribution over actions.
+  For discrete action spaces, the model learns to represent a categorical distribution, while for continuous action spaces, it learns to represent a normal distribution over actions.
   
   **Results** \
-  Training reward plot on HalfCheetah environment:
+  Training reward plot for the HalfCheetah environment:
 
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/graphs/HalfCheetah_PG.png" alt="Policy Gradient Training Rewards" width="300"/>
   </p>
   
-  Policy Gradient in action on HalfCheetah environment:
+  Policy Gradient in action on the HalfCheetah environment:
   
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/HalfCheetah_PG.gif" alt="Policy Gradient HalfCheetah Video" width="250"/>
@@ -56,7 +56,7 @@ Here are a list of different algorithms implemented in this repository:
 <details>
   <summary><h3>Actor-Critic</h3></summary>
   
-  Implementation of an Actor-Critic method using Generalized Advantage Estimation (GAE) to reduce variance in the policy gradient estimates.
+  This section implements an Actor-Critic method and uses Generalized Advantage Estimation (GAE) to reduce variance in the policy gradient estimates.
   
   We can efficiently implement the generalized advantage estimator by recursively computing:
 
@@ -67,13 +67,13 @@ Here are a list of different algorithms implemented in this repository:
   </p>
   
   **Results** \
-  Training reward plot on HalfCheetah environment:
+  Training reward plot for the HalfCheetah environment:
   
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/graphs/HalfCheetah_Actor-Critic.png" alt="Actor-Critic Training Rewards" width="300"/>
   </p>
   
-  Actor-Critic in action on HalfCheetah environment:
+  Actor-Critic in action on the HalfCheetah environment:
     
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/HalfCheetah_Actor-Critic.gif" alt="Actor-Critic HalfCheetah Video" width="250"/>
@@ -84,12 +84,12 @@ Here are a list of different algorithms implemented in this repository:
 <details>
   <summary><h3>Tabular Q-Learning</h3></summary>
   
-  This algorithm uses a Q-table to store action values, hence is only suitable for environment with small discrete state spaces.
-  During the training, actions are chosen using an epsilon-greedy policy for exploration-exploitation balance.
-  Additionally, learning rate decay is adopted to achieve a more stable convergence.
+  This algorithm uses a Q-table to store action values, making it suitable only for environments with small discrete state spaces. 
+  During training, actions are chosen using an epsilon-greedy policy to balance exploration and exploitation. 
+  Additionally, learning rate decay is employed to achieve more stable convergence.
   
   **Results** \
-  Training reward plots on FrozenLake (slippery and non-slippery environments):
+  Training reward plots for the FrozenLake environment:
 
   <table align="center">
       <tr>
@@ -111,23 +111,27 @@ Here are a list of different algorithms implemented in this repository:
 <details>
   <summary><h3>Vanilla DQN, Double DQN (DDQN), and Dueling (Double) DQN</h3></summary>
   
-  In this part, 3 variants of the DQN algorithm are implemented and a target network is used in all the algorithms to stabilize learning. 
+  In this section, three variants of the DQN algorithm are implemented and a target network is utilized in all cases to stabilize learning. 
   
-  DDQN improves DQN by decoupling the action selection from the action evaluation, hence reducing the potential for overestimation.
+  **DDQN** improves DQN by decoupling action selection from action evaluation, hence reducing the potential for overestimation.
   
-  Dueling DQN splits the Q-values in two different parts, the value function V(s) and the advantage function A(s, a):
+  **Dueling DQN** splits the Q-values in two different components, the value function V(s) and the advantage function A(s, a):
   <p align="center">
     $Q(s, a) = V(s) + A(s, a)$
   </p>
   To achieve this, the same neural network splits its last layer in two parts, one of them to estimate V(s) and the other one to estimate A(s, a).
-  However, the problem with this approach is that given the function Q, we cannot determine the values of V and A.
+  However, the problem posed by this approach is that given the function Q, we cannot uniquely determine the values of V and A.
   To address this issue of identifiability, we can force the advantage function estimator to have zero advantage at the chosen action<sup>1</sup>.
+  <p align="center">
+    $Q(s, a) = V(s) + (A(s, a) - max_{a'}{A(s, a')})$
+  </p>
+  Or alternatively:
   <p align="center">
     $Q(s, a) = V(s) + (A(s, a) - \frac{1}{|A|}\sum_{a'}{A(s, a')})$
   </p>
   
   **Results** \
-  Comparison of training rewards for DQN, DDQN, and Dueling (Double) DQN on the CartPole environment:
+  The following table compares training rewards for Vanilla DQN, DDQN, and Dueling DQN on the CartPole environment:
   
   <table align="center">
       <tr>
@@ -148,12 +152,12 @@ Here are a list of different algorithms implemented in this repository:
       </tr>
   </table>
 
-  Please note that the best-performing model (based on training and evaluation runs) is selected and saved as the final model (indicated with a dashed red line).
+  Please note that the best-performing model (based on training and evaluation runs) is selected and saved as the final model (indicated by a dashed red line).
   
-  Dueling DQN in action on CartPole environment:
+  Dueling DQN in action on the CartPole environment:
   
   <p align="center">
-    <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/Cartpole_Dueling DQN.gif" alt="Dueling DQN CartPole Video" width="250"/>
+    <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/Cartpole_Dueling DQN.gif" alt="Dueling DQN CartPole Video" width="300"/>
   </p>
     
 </details>
@@ -161,29 +165,29 @@ Here are a list of different algorithms implemented in this repository:
 <details>
   <summary><h3>Deep Deterministic Policy Gradient (DDPG)</h3></summary>
   
-  One of the main drawbacks of DQN is its inability to run on environments with a continious action space by nature.
-  The main problem lies in getting the argmax over actions to find the optimal action, which is not feasable in continious action spaces.
-  DDPG addresses this by learning a policy $`\mu(s)`$ in a way that:
+  One of the main drawbacks of DQN is its inability to operate in environments with a continuous action space. 
+  The primary challenge lies in obtaining the argmax over actions to find the optimal action, which is not feasible in continuous action spaces. 
+  DDPG addresses this by learning a policy $`\mu(s)`$ such that:
   <p align="center">
     $max_a Q(s, a) \approx Q(s, \mu(s))$
   </p>
-  In this algorithm, both actor and critic networks use target networks. These networks are synced with the main network using Polyak soft update.
-  Also Action exploration is achieved by adding random normal noise to the actions.
-  Additionally, to prevent overfitting, warmup episodes are run before the start of training and dropout is used in the critic network.
+  In this implementation, both actor and critic networks utilize target networks. These networks are synchronized with the main network using Polyak soft updates. 
+  Also, action exploration is achieved by adding random normal noise to the actions. 
+  Additionally, to prevent overfitting, warmup episodes are executed before the start of training, and dropout is employed in the critic network.
   
   This implementation is based on the pseudocode described in [OpenAI Spinning Up](https://spinningup.openai.com/en/latest/algorithms/ddpg.html).
   
   **Results** \
-  Training reward plot on Pendulum environment:
+  Training reward plot on the Pendulum environment:
   
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/graphs/Pendulum_DDPG.png" alt="DDPG Training Rewards" width="300"/>
   </p>
   
-  DDPG in action on Pendulum environment:
+  DDPG in action on the Pendulum environment:
   
   <p align="center">
-    <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/Pendulum_DDPG.gif" alt="DDPG Pendulum Video" width="250"/>
+    <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/Pendulum_DDPG.gif" alt="DDPG Pendulum Video" width="300"/>
   </p>
     
 </details>
@@ -191,28 +195,29 @@ Here are a list of different algorithms implemented in this repository:
 <details>
   <summary><h3>CNN-DQN on Atari Games</h3></summary>
   
-  This algorithm combines the dueling DQN method from the last part with convolutional neural networks to solve Atari environments.
+  This algorithm combines the dueling DQN method from the previous section with convolutional neural networks to solve Atari environments. 
   The dueling model architecture and hyperparameters are adapted from [bhctsntrk/OpenAIPong-DQN](https://github.com/bhctsntrk/OpenAIPong-DQN).
   
   **Preprocessing**
-  To decrease computational cost and prepare the frames to serve as the input of the model, various preprocessing steps are applied using Gymnasium wrappers.
-  These preprocessing steps are similar to that of the paper "Playing Atari with Deep Reinforcement Learning"<sup>2</sup>. Specifically:
+  To decrease computational cost and prepare the frames for input to the model, various preprocessing steps are applied using Gymnasium wrappers. 
+  These preprocessing steps are similar to those described in "Playing Atari with Deep Reinforcement Learning"<sup>2</sup>. Specifically:
   - Frames are converted to grayscale.
   - Frames are resized and cropped to reducing computational cost and focus on the playing area.
   - Every 4th frame is skipped, and each input to the Q-function consists of 4 stacked frames to address partial observability of the environment.
-  Also, 3 additional game-specific wrappers can be used in the implemented code, however they are all disabled for the Pong game.
-  - Clip reward: Clips the reward to the (-1, 1).
+  
+  Additionally, 3 game-specific wrappers can be utilized in the implemented code; however, they are all disabled for the Pong game:
+  - Clip reward: Clips the rewards to (-1, 1).
   - Episodic life: Ends an episode on life loss.
-  - Fire reset: Some of the games (such as Breakout) require the player to press 'Fire' for the game to start. This wrapper performs the 'Fire' action upon each environment reset.
+  - Fire reset: Some games (such as Breakout) require the player to press 'Fire' for the game to start. This wrapper performs the 'Fire' action on each environment reset.
   
   **Results** \
-  Training reward plot on Pong game:
+  Training reward plot on the Pong game:
   
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/graphs/Pong_CNN-DQN.png" alt="CNN-DQN Training Rewards" width="500"/>
   </p>
   
-  CNN-DQN in action on Pong game:
+  CNN-DQN in action on the Pong game:
   
   <p align="center">
     <img src="https://github.com/NegarMov/DRL_Algorithms/blob/master/_assets/videos/Pong_CNN-DQN.gif" alt="CNN-DQN Pong Video" width="300"/>
@@ -221,9 +226,9 @@ Here are a list of different algorithms implemented in this repository:
 </details>
 
 ## Usage
-Training and evaluation scripts are provided for each algorithm as a batch file under the `scripts` directory. 
+Training and evaluation scripts for each algorithm are provided as batch files in the `scripts` directory.
 
-Also saved model parameters can be found in `_models`. By default, the test scripts use this directory to load the model.
+Additionally, saved model parameters can be found in the  `_models` directory. By default, the test scripts will load the model from this directory.
 
 ## References
 1. [Dueling Network Architectures for Deep Reinforcement Learning](https://arxiv.org/pdf/1511.06581.pdf)
