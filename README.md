@@ -1,4 +1,4 @@
-<h1 align="center">Deep Reinforcement Learning Algorithms</h1>
+<h1 align="center">Deep RL: From Theory to Practice</h1>
 
 ![Python 3](https://img.shields.io/badge/Python-3.11-blue.svg)
 ![Pytorch](https://img.shields.io/badge/Pytorch-2.6.0-red.svg)
